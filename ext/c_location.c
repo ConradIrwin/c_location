@@ -9,7 +9,7 @@ typedef struct {
    void       *dli_fbase;  /* Address at which shared object is loaded */
    const char *dli_sname;  /* Name of nearest symbol with address lower than addr */
    void       *dli_saddr;  /* Exact address of symbol named in dli_sname */
-} Dl_info;
+} Dl2_info;
 
 /* Given the pointer to a C function (called "name" for error handling)
  * return the filename and offset of the compiled byte code for that function.
@@ -21,7 +21,7 @@ typedef struct {
  */
 static VALUE file_and_offset(void *func, char *name)
 {
-    Dl_info info;
+    Dl2_info info;
     VALUE file;
     VALUE offset;
 

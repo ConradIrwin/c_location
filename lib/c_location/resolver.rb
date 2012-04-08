@@ -8,13 +8,10 @@ module CompiledLocation
     end
 
     def source_location
-      case shared_library
-      when /\.so[.0-9]*\z/, /\.o\z/
-        objdump
-
-      when /.\.(bundle|dylib)\z/
+      if RUBY_PLATFORM =~ /darwin/
         nm
-
+      else
+        objdump
       end
 
       return [self.file, self.line] if self.file
@@ -24,26 +21,41 @@ module CompiledLocation
             "or it may just be broken."
     end
 
-    def objdump(lib=shared_library)
-      command = "#{Shellwords.escape which_objdump} --dwarf=decodedline #{Shellwords.escape shared_library}"
-      output = `#{command}`
-      raise "Failed to run #{command.inspect}: #{output}" unless $?.success?
+    def objdump(shared_library=self.shared_library, offset=self.offset)
+      output = run("#{Shellwords.escape which_objdump} --dwarf=decodedline #{Shellwords.escape shared_library}")
 
       output.lines.grep(/\s+0x#{offset.to_s(16)}$/).each do |m|
-
         file, line, address = m.split(/\s+/)
 
-        self.file = absolutify_file(file)
+        self.file = absolutify_file(file, shared_library)
         self.line = line.to_i
       end
     end
 
     def nm
-      output = `#{Shellwords.escape which_nm} -a #{Shellwords.escape shared_library}`
-      raise "Failed to run #{which_nm}: #{output}" unless $?.success?
+      output = run("#{Shellwords.escape which_nm} -pa #{Shellwords.escape shared_library}")
 
-      output.lines.grep(/\.o$/).each do |line|
-        objdump(line.split(/\s+/).last)
+      o_file = nil
+
+      output.lines.each do |line|
+        case line
+        when /OSO (.*\.o\)?)/
+          o_file = $1.sub(%r{(.*)/([^/]*)\((.*)\)}, '\1/\3')
+        when /^[01]*#{offset.to_s(16)}.*FUN (.+)/
+          raise "Your version of nm seems to not output OSO lines." unless o_file
+          find_offset_for_name(o_file, $1)
+          break
+        end
+      end
+    end
+
+    def find_offset_for_name(shared_library, name)
+      output = run("#{Shellwords.escape which_objdump} -tT #{Shellwords.escape shared_library}")
+
+      if output.lines.detect{ |line| line =~ /^([0-9a-f]+).*\.text\s#{Regexp.escape name}$/ }
+        objdump shared_library, $1.to_i(16)
+      else
+        raise "Could not find #{name.inspect} in #{shared_library}"
       end
     end
 
@@ -60,20 +72,16 @@ module CompiledLocation
     end
 
     def which_nm
-      nm = `which gnm`.chomp
-      return nm if $?.success?
       nm = `which nm`.chomp
-      return nm if $?.success?
-      nm = `which /usr/local/bin/gnm`.chomp
       return nm if $?.success?
 
       raise "You need to have `nm` installed to use c_location. " +
-            "Try installing the binutils package (apt-get install binutils; brew install binutils)."
+            "Try installing Xcode from the App Store. (GNU nm from binutils doesn't work unfortunately)"
 
     end
 
-    def absolutify_file(file)
-      if shared_library =~ %r{(.*/gems/[^/]*)/}
+    def absolutify_file(file, shared_library)
+      if shared_library =~ %r{(.*/(gems|src)/[^/]*)/}
         potentials = Dir["#{$1}/**/#{file}"]
       else
         potentials = Dir["./**/#{file}"]
@@ -82,9 +90,16 @@ module CompiledLocation
       if potentials.size == 1
         potentials.first
       elsif potentials.empty?
-        raise "You are looking for a file called `#{file}`, but I can't find it :("
+        raise "You are looking for a file called `#{file}` that was used to build `#{shared_library}` but I can't find it." +
+	      "Try using `rvm` or submitting a patch."
       else
         raise "You are looking for one of `#{potentials.join(", ")}`"
+      end
+    end
+
+    def run(command)
+      `#{command}`.tap do |output|
+        raise "Failed to run #{command.inspect}: #{output}" unless $?.success?
       end
     end
   end
