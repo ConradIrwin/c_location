@@ -22,7 +22,7 @@ module CompiledLocation
       if m = output.lines.detect{ |line| line =~ /\s+0x#{offset.to_s(16)}$/ }
         file, line, address = m.split(/\s+/)
 
-        [absolutify_file(file, shared_library), line.to_i(10)]
+        absolutify(file, line.to_i(10), shared_library)
       else
         raise "Could not find #{shared_library}@0x#{offset.to_s(16)} using #{command.inspect}." +
               "This may be because your ruby/extensions are not compiled with -g."
@@ -80,18 +80,20 @@ module CompiledLocation
 
     end
 
-    def absolutify_file(file, shared_library)
+    def absolutify(file, line, shared_library)
       if shared_library =~ %r{(.*/(gems|src)/[^/]*)/}
         potentials = Dir["#{$1}/**/#{file}"]
+      elsif shared_library =~ %r{(.*/(rubies)/[^/]*)/}
+        potentials = Dir["#{$1.sub('/rubies/', '/src/')}/**/#{file}"]
       else
         potentials = Dir["./**/#{file}"]
       end
 
       if potentials.empty?
-        raise "Could not find the `#{file}` that was used to build `#{shared_library}`." +
+        raise "Could not find the `#{file}:#{line}` that was used to build `#{shared_library}`." +
               "If you know where this file is please submit a pull request"
       else
-        potentials.first
+        [potentials.first, line]
       end
     end
 
