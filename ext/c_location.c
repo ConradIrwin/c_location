@@ -112,11 +112,42 @@ typedef struct rb_method_entry_struct {
     VALUE klass;                    /* should be mark */
 } rb_method_entry_t;
 
+#ifdef RUBY_193
+
+struct METHOD {
+    VALUE recv;
+    VALUE rclass;
+    ID id;
+    rb_method_entry_t *me;
+    struct unlinked_method_entry_list_entry *ume;
+};
+
+static VALUE compiled_location(VALUE self)
+{
+    struct METHOD *data;
+    VALUE name = rb_funcall(self, rb_intern("name"), 0);
+          name = rb_funcall(name, rb_intern("to_s"), 0);
+
+    // TODO: We're not validating that this is definitely a method struct.
+    // It would be nice if we could use TypedData_Get_Struct, but we don't
+    // have access to &method_data_type.
+    data = (struct METHOD *)DATA_PTR(self);
+
+    if (data->me->def->type != VM_METHOD_TYPE_CFUNC) {
+        return Qnil;
+    }
+
+    return file_and_offset(*data->me->def->body.cfunc.func, StringValueCStr(name));
+}
+
+#else /* RUBY_192 */
+
 struct METHOD {
     VALUE recv;
     VALUE rclass;
     ID id;
     rb_method_entry_t me;
+    struct unlinked_method_entry_list_entry *ume;
 };
 
 static VALUE compiled_location(VALUE self)
@@ -131,12 +162,14 @@ static VALUE compiled_location(VALUE self)
     data = (struct METHOD *)DATA_PTR(self);
 
     if (data->me.def->type != VM_METHOD_TYPE_CFUNC) {
-        printf("FOO: %i, %i\n", data->me.def->type, VM_METHOD_TYPE_CFUNC);
         return Qnil;
     }
 
     return file_and_offset(*data->me.def->body.cfunc.func, StringValueCStr(name));
 }
+
+
+#endif
 
 #else /* RUBY18 */
 
