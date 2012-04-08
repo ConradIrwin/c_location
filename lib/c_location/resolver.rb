@@ -30,7 +30,7 @@ module CompiledLocation
     end
 
     def nm(shared_library, offset)
-      command = "#{Shellwords.escape which_objdump} --dwarf=decodedline #{Shellwords.escape shared_library}"
+      command = "#{Shellwords.escape which_nm} -pa #{Shellwords.escape shared_library}"
       output = run(command)
 
       o_file = nil
