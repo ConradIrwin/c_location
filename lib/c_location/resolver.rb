@@ -1,6 +1,6 @@
 module CompiledLocation
   class Resolver
-    attr_accessor :shared_library, :offset, :file, :line
+    attr_accessor :shared_library, :offset
 
     def initialize(shared_library, offset)
       self.shared_library, self.offset = [shared_library, offset]
@@ -9,31 +9,29 @@ module CompiledLocation
 
     def source_location
       if RUBY_PLATFORM =~ /darwin/
-        nm
+        nm(shared_library, offset)
       else
-        objdump
+        objdump(shared_library, offset)
       end
-
-      return [self.file, self.line] if self.file
-
-      raise "Could not find which file or line represented #{shared_library}@0x#{offset.to_s(16)}. " +
-            "This may be because your ruby/extensions are not being compiled with -g, " +
-            "or it may just be broken."
     end
 
-    def objdump(shared_library=self.shared_library, offset=self.offset)
-      output = run("#{Shellwords.escape which_objdump} --dwarf=decodedline #{Shellwords.escape shared_library}")
+    def objdump(shared_library, offset)
+      command = "#{Shellwords.escape which_objdump} --dwarf=decodedline #{Shellwords.escape shared_library}"
+      output = run(command)
 
-      output.lines.grep(/\s+0x#{offset.to_s(16)}$/).each do |m|
+      if m = output.lines.detect{ |line| line =~ /\s+0x#{offset.to_s(16)}$/ }
         file, line, address = m.split(/\s+/)
 
-        self.file = absolutify_file(file, shared_library)
-        self.line = line.to_i
+        [absolutify_file(file, shared_library), line.to_i(10)]
+      else
+        raise "Could not find #{shared_library}@0x#{offset.to_s(16)} using #{command.inspect}." +
+              "This may be because your ruby/extensions are not compiled with -g."
       end
     end
 
-    def nm
-      output = run("#{Shellwords.escape which_nm} -pa #{Shellwords.escape shared_library}")
+    def nm(shared_library, offset)
+      command = "#{Shellwords.escape which_objdump} --dwarf=decodedline #{Shellwords.escape shared_library}"
+      output = run(command)
 
       o_file = nil
 
@@ -43,19 +41,21 @@ module CompiledLocation
           o_file = $1.sub(%r{(.*)/([^/]*)\((.*)\)}, '\1/\3')
         when /^[01]*#{offset.to_s(16)}.*FUN (.+)/
           raise "Your version of nm seems to not output OSO lines." unless o_file
-          find_offset_for_name(o_file, $1)
-          break
+          return objdump_tt(o_file, $1)
         end
       end
+
+      raise "Could not find #{shared_library}@0x#{offset.to_s(16)} using #{command.inspect}." +
+            "This may be because your ruby/extensions are not compiled with -g."
     end
 
-    def find_offset_for_name(shared_library, name)
+    def objdump_tt(shared_library, name)
       output = run("#{Shellwords.escape which_objdump} -tT #{Shellwords.escape shared_library}")
 
       if output.lines.detect{ |line| line =~ /^([0-9a-f]+).*\.text\s#{Regexp.escape name}$/ }
-        objdump shared_library, $1.to_i(16)
+        objdump(shared_library, $1.to_i(16))
       else
-        raise "Could not find #{name.inspect} in #{shared_library}"
+        raise "Could not find #{shared_library}##{name} using #{command.inspect}."
       end
     end
 
@@ -87,13 +87,11 @@ module CompiledLocation
         potentials = Dir["./**/#{file}"]
       end
 
-      if potentials.size == 1
-        potentials.first
-      elsif potentials.empty?
-        raise "You are looking for a file called `#{file}` that was used to build `#{shared_library}` but I can't find it." +
-	      "Try using `rvm` or submitting a patch."
+      if potentials.empty?
+        raise "Could not find the `#{file}` that was used to build `#{shared_library}`." +
+              "If you know where this file is please submit a pull request"
       else
-        raise "You are looking for one of `#{potentials.join(", ")}`"
+        potentials.first
       end
     end
 
