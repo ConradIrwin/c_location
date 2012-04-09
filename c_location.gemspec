@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name = "c_location"
-  s.version = "0.1"
+  s.version = "0.2"
   s.platform = Gem::Platform::RUBY
   s.author = "Conrad Irwin"
   s.email = "conrad.irwin@gmail.com"
@@ -12,6 +12,7 @@ Gem::Specification.new do |s|
              "lib/c_location/resolver.rb",
              "ext/extconf.rb",
              "ext/c_location.c",
+             "ext/c_location.h",
              "example/c_extension_location.rb",
              "example/inbuilt_location.rb",
              "README.md",
